@@ -1,7 +1,8 @@
 # clustering_for_inverted_index
 File downloaded from: www.ai.mit.edu/projects/jmlr/papers/volume5/lewis04a/a12-token-files/
 
--pip install psutil
+- pip install psutil
+- pip install ortools
 
 ## Data collection RCV1
 
