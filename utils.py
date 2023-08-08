@@ -1,14 +1,22 @@
-import glob, re
+import glob, re, random
 import pandas as pd
 import numpy as np
 from ortools.constraint_solver import routing_enums_pb2
 from ortools.constraint_solver import pywrapcp
 from scipy.sparse import csr_matrix
-from sklearn.metrics.pairwise import cosine_distances
+from sklearn.metrics import silhouette_score
+from sklearn.base import ClusterMixin, clone
 from sklearn.feature_extraction.text import TfidfVectorizer
 
 
-def parse_file_list(file_path: str ="dataset/", format: str =".dat"):
+def parse_data_files(file_path: str ="dataset/", format: str =".dat"):
+    """
+    Parse doc_id and contents of different documents in files according to this format:\n
+    .I <docid>\n
+    .W\n
+    <textline>+\n
+    <blankline>
+    """
     file_list=glob.glob(file_path+"*"+format)
     res=pd.DataFrame([], columns=['doc_id', 'terms'])
     for f in file_list:
@@ -22,6 +30,9 @@ def parse_file_list(file_path: str ="dataset/", format: str =".dat"):
 
 
 def get_tfidf_repr(df: pd.DataFrame):
+    """
+    Get the TF-IDF representation of a Pandas Dataframe
+    """
     doc_tfidf=TfidfVectorizer(lowercase=False, dtype=np.float32)
 
     #Computation of the sparse embedding
@@ -87,7 +98,11 @@ def TSP_solver(pairwise_distances: pd.DataFrame | np.ndarray):
     return routes[0][:-1]
 
 
+''' 
 def sort_csr_by_nonzero(matrix: csr_matrix) -> csr_matrix:
+    """
+    Sort in decreasing order the CSR matrix by the total number of non zero elem in each row 
+    """
     # Count the number of non-zero entries in each row.
     nonzero_counts = matrix.getnnz(axis=1)
     # Get the sorted indices based on the counts.
@@ -97,18 +112,52 @@ def sort_csr_by_nonzero(matrix: csr_matrix) -> csr_matrix:
 
 
 def stream_cluster(sorted_collection: csr_matrix, radius: float):
-    """Cluster a sorted list of objects based on their distance to each other"""
-    C=[]
+    """Cluster a sorted list of objects based on their distance to each other. 
+    `sorted_collection` must be TD-IDF vectors normalized"""
+    C=[] #set of all clusters
     cluster=[]
     for i, d in enumerate(sorted_collection):
         if i==0:
             cluster=[d]
             C.append(cluster)
         else:        
-            dist_c=np.min([cosine_distances(c[0], d) for c in C]) #c[0] is the medoid of the cluster
+            dist_c=np.min([(1-d.dot(c[0])).round(4) for c in C]) #c[0] is the medoid of the cluster c
             if dist_c<=radius:
                 cluster.append(d)
             else:
                 cluster=[d]
                 C.append(cluster)
-    return C
+    return C 
+'''
+
+
+def random_search_silhouette(estimator: ClusterMixin, X: pd.DataFrame | np.ndarray, param_space: dict, n_iter: int, n_jobs: int = -1):
+    """ Random parameters search for the clustering estimator based on the silhouette score. It returns the best estimator fitted on the data"""
+    # Perform random parameter search
+    best_params = None
+    best_estimator = None
+    best_score = -1
+
+    for _ in range(n_iter):
+        # Randomly sample parameters from the search space
+        sampled_params = {param: random.choice(values) for param, values in param_space.items()}
+        
+        if "n_jobs" in estimator.get_params().keys():
+            estimator.set_params(**sampled_params, n_jobs=n_jobs)
+        else:
+            estimator.set_params(**sampled_params)
+
+        estimator.fit(X)
+        # Calculate a score based on the sampled parameters (replace with your scoring function)
+        score = silhouette_score(X, estimator.labels_, metric='cosine')
+        
+        # Check if this combination is the best so far
+        if score > best_score:
+            best_score = score
+            best_estimator = clone(estimator)
+            best_params = sampled_params
+
+    print("Best parameters:", best_params)
+    print("Best score:", best_score)
+
+    return best_estimator.fit(X)

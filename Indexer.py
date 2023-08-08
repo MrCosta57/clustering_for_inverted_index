@@ -10,8 +10,7 @@ class Indexer:
 
     def get_dict(self):
         '''
-        Return a dictionary where the keys are the terms and the values 
-        are sorted lists of DocIDs.
+        Return a dictionary where the keys are the terms and the values are sorted lists of DocIDs.
         The DocID are generated sequentially during the parsing.
         '''
         dict = {}
@@ -32,7 +31,6 @@ class Indexer:
                 #          where cf = collection frequency of the term
                 #                [doc_i1, doc_i2, ...] are an integer list of DocIDs, 
                 #                                      sorted by construction
-
                 for line in file:
                     ll = line.split()
 
