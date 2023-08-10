@@ -1,25 +1,29 @@
 import glob
 import matplotlib.pyplot as plt 
 import numpy as np
+from tqdm import tqdm
 from collections import OrderedDict
 
+EXIT_NUMBER_DOCS=10000
 class Indexer:
     def __init__(self, file_path="dataset/", format=".dat"):
-        self.file_list=glob.glob(file_path+"*"+format)
+        """Initialize the object with the list of all files in a directory sorted by name"""
+        self.file_list=np.sort(glob.glob(file_path+"*"+format))
 
 
     def get_dict(self):
         '''
         Return a dictionary where the keys are the terms and the values are sorted lists of DocIDs.
-        The DocID are generated sequentially during the parsing.
+        The DocID are generated sequentially during the parsing so they are sorted by construction.
         '''
         dict = {}
         docid = 0         # counter to assign docids
         tot_docs = 0      # total number of docs
         tot_tokens = 0    # total number of tokens
         tot_postings = 0  # total number of postings
-        
-        for f in self.file_list:
+        EXIT_TMP=False
+
+        for f in tqdm(self.file_list):
             count_doc = 0       # number of docs per file .dat     
             count_tokens = 0    # number of tokens per file .dat
             count_postings = 0  # number of postings per file .dat
@@ -53,13 +57,18 @@ class Indexer:
                                             # value for key=el:
                                             #     [coll_frequency, [docid1, docid2, ....]]
                                     count_postings += 1
-
-            print(f, " - docs: ", count_doc, "   tokes: ", count_tokens)
+                    
+                    if docid==EXIT_NUMBER_DOCS:
+                        EXIT_TMP=True
+                        break
+                if EXIT_TMP:
+                    break
+            #print(f, " - docs: ", count_doc, "   tokes: ", count_tokens)
             tot_docs += count_doc
             tot_tokens += count_tokens
             tot_postings += count_postings
             
-        print("Total no. of terms (Voc. SZ):", len(dict))
+        print("Total no. of terms (Voc. size):", len(dict))
         print("Total no. of tokens:", count_tokens)
         print("Total no. of documents:", tot_docs)
         print("Total no. of postings:", tot_postings)
@@ -68,7 +77,7 @@ class Indexer:
 
     
     @staticmethod
-    def create_standard_index(dict: dict, path="output/", file_lexicon="lexicon.idx", file_postings="postings.idx"):
+    def store_index(dict: dict, path="output/", file_lexicon="lexicon.idx", file_postings="postings.idx"):
         ''' 
         dict: dictionary containing for each term (key) 
             a list of docIDs (postings list of integers)
@@ -90,10 +99,16 @@ class Indexer:
         
 
     @staticmethod
-    def create_clustering_based_index(dict: dict, path="output/", file_lexicon="lexicon.idx", file_postings="postings.idx"):
-        pass
+    def remap_index(curr_dict: dict, remap_dict: dict):
+        """
+        Remap the docids in the posting lists of the `curr_dict` according to the values in the `remap_dict`.
+        Return a new remapped python dictionary where the posting lists are sorted by docid in ascending order
+        """
+        tmp_new_dict={key: [value[0], [remap_dict[curr_docid] for curr_docid in value[1]]] for key, value in curr_dict.items()}
+        new_dict={key: [value[0], sorted(value[1])] for key, value in tmp_new_dict.items()}
 
-    
+        return new_dict
+
 
     @staticmethod
     def read_index(path="output/", file_lexicon="lexicon.idx", file_postings="postings.idx"):
@@ -113,17 +128,33 @@ class Indexer:
                 l = line.split() # two elements: (1) term, (2) collection frequency, and (2) associated postings list length
                 pl = p.split()
                 new_dict[l[0]] = [l[1], [int(el) for el in pl]]  # list of integers
-        return(new_dict)
+        return new_dict
         
 
     @staticmethod
     def get_total_VB_enc_size(index: dict):
-        pass
+        """
+        Return the total size in Bytes occupied by the posting lists of an inverted index if Variable Byte encoding is used
+        """
+        #Formula for each G-gap: ceil( ( floor(logG)+1 )/7 )*8
+        sizes_list=[np.sum(np.ceil((np.floor(np.log2(np.diff(v[1])))+1)/7)*8) for v in index.values()]
+        total_size=np.sum(sizes_list)
+
+        return total_size
 
 
     @staticmethod
     def plot_Zip_law(dict: dict):
+        """
+        The terms are sorted by frequencies in reverse order.
 
+        Zipf's law:  $cf_i = K \cdot i^{-1}$, where $cf_i$ is the collection frequency of the $i^{th}$ most frequent term.
+
+
+        In *log-log*: $\log(cf_i) = - \log(i) + \log(K)$, which is the equation of a straight line of slope $-1$:  
+        $$y = -x + \textit{intercept}$$
+        where $\textit{intercept}$ is the unknown. 
+        """
         freqs = []
         for v in dict.values():
             freqs.append(int(v[0]))
@@ -163,7 +194,3 @@ class Indexer:
         plt.loglog(x, fitted_f, 'b', label=lab)
         plt.legend()
         plt.show()
-
-
-
-

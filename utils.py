@@ -1,6 +1,7 @@
 import glob, re, random
 import pandas as pd
 import numpy as np
+from tqdm import tqdm
 from ortools.constraint_solver import routing_enums_pb2
 from ortools.constraint_solver import pywrapcp
 from scipy.sparse import csr_matrix
@@ -15,9 +16,10 @@ def parse_data_files(file_path: str ="dataset/", format: str =".dat"):
     .I <docid>\n
     .W\n
     <textline>+\n
-    <blankline>
+    <blankline>\n
+    Files in the directory are read by name in lexicographic order
     """
-    file_list=glob.glob(file_path+"*"+format)
+    file_list=np.sort(glob.glob(file_path+"*"+format))
     res=pd.DataFrame([], columns=['doc_id', 'terms'])
     for f in file_list:
         with open(f, 'r') as file:
@@ -59,7 +61,8 @@ def get_routes(solution, routing, manager):
 def TSP_solver(pairwise_distances: pd.DataFrame | np.ndarray):
     """Travelling Salesperson Problem (TSP) solver between objects"""
     data={}
-    data['distance_matrix'] = pairwise_distances
+    #needed to scale and make distance integer because routing solver work with int and distances are from [0, 1]
+    data['distance_matrix'] = (pairwise_distances*1000).astype("int32") 
     data['num_vehicles'] = 1
     data['depot'] = 0
 
@@ -138,7 +141,7 @@ def random_search_silhouette(estimator: ClusterMixin, X: pd.DataFrame | np.ndarr
     best_estimator = None
     best_score = -1
 
-    for _ in range(n_iter):
+    for _ in tqdm(range(n_iter)):
         # Randomly sample parameters from the search space
         sampled_params = {param: random.choice(values) for param, values in param_space.items()}
         
@@ -148,6 +151,14 @@ def random_search_silhouette(estimator: ClusterMixin, X: pd.DataFrame | np.ndarr
             estimator.set_params(**sampled_params)
 
         estimator.fit(X)
+        
+        if "DBSCAN" in estimator.__class__.__name__:
+            # check if the number of clusters is valid
+            n_clusters = len(np.unique(estimator.labels_)) - (1 if -1 in estimator.labels_ else 0)
+            if n_clusters < 2:
+                print(f"Warning: Number of clusters is {n_clusters}. Skipping this model. Sampled parameters used: ", sampled_params)
+                continue
+
         # Calculate a score based on the sampled parameters (replace with your scoring function)
         score = silhouette_score(X, estimator.labels_, metric='cosine')
         
@@ -157,7 +168,10 @@ def random_search_silhouette(estimator: ClusterMixin, X: pd.DataFrame | np.ndarr
             best_estimator = clone(estimator)
             best_params = sampled_params
 
-    print("Best parameters:", best_params)
-    print("Best score:", best_score)
+    if best_estimator is None:
+        raise ValueError("No valid model found.")
+    else:
+        print("Best parameters:", best_params)
+        print("Best score:", best_score)
 
     return best_estimator.fit(X)
