@@ -2,9 +2,10 @@ import glob
 import matplotlib.pyplot as plt 
 import numpy as np
 from tqdm import tqdm
+from scipy.sparse import csr_matrix
 from collections import OrderedDict
 
-EXIT_NUMBER_DOCS=10000
+EXIT_NUMBER_DOCS=50000
 class Indexer:
     def __init__(self, file_path="dataset/", format=".dat"):
         """Initialize the object with the list of all files in a directory sorted by name"""
@@ -23,7 +24,7 @@ class Indexer:
         tot_postings = 0  # total number of postings
         EXIT_TMP=False
 
-        for f in tqdm(self.file_list):
+        for f in self.file_list:
             count_doc = 0       # number of docs per file .dat     
             count_tokens = 0    # number of tokens per file .dat
             count_postings = 0  # number of postings per file .dat
@@ -75,6 +76,13 @@ class Indexer:
         
         return dict
 
+
+    @staticmethod
+    def get_dict_from_csr_matrix(matrix: csr_matrix):
+        col_matr=matrix.tocsc()
+        tmp_new_dict={key: col_matr.getcol(key).nonzero()[0] for key in range(matrix.shape[1])}
+        new_dict={key: [len(value), sorted(value)] for key, value in tmp_new_dict.items()}
+        return new_dict
     
     @staticmethod
     def store_index(dict: dict, path="output/", file_lexicon="lexicon.idx", file_postings="postings.idx"):
@@ -138,9 +146,9 @@ class Indexer:
         """
         #Formula for each G-gap: ceil( ( floor(logG)+1 )/7 )*8
         sizes_list=[np.sum(np.ceil((np.floor(np.log2(np.diff(v[1])))+1)/7)*8) for v in index.values()]
-        total_size=np.sum(sizes_list)
+        avg_size=np.mean(sizes_list)
 
-        return total_size
+        return round(avg_size, 3)
 
 
     @staticmethod

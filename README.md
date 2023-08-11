@@ -11,7 +11,7 @@ However, Reuters have stated that distributing term/document matrices is not a v
 
 To ensure that the original data cannot be reconstructed, the term/document matrices distributed are built by removing words from a large stop list (including essentially all linguistic function words), replacing the remaining words with stems, and scrambling the order of the stems.
 
-Specifically, Appendix 12 consists of **ten** ASCII files containing tokenized documents. 
+Specifically, Appendix 12 - B.12.i. RCV1-v2 Token Files  consists of **five** ASCII files containing tokenized documents. 
 
 The files fall in two groups, and the names and the group purposes depend on the usage of RCV1 for text classification, a specific machine learning (ML) task. So the files are subdivided in training and test, as usual for ML predictive tasks.
 
