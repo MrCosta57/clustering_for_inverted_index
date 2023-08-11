@@ -7,6 +7,7 @@ from ortools.constraint_solver import pywrapcp
 from scipy.sparse import csr_matrix
 from sklearn.metrics import silhouette_score
 from sklearn.base import ClusterMixin, clone
+from sklearn.metrics.pairwise import cosine_distances
 from sklearn.feature_extraction.text import TfidfVectorizer
 
 
@@ -101,7 +102,7 @@ def TSP_solver(pairwise_distances: pd.DataFrame | np.ndarray):
     return routes[0][:-1]
 
 
-''' 
+
 def sort_csr_by_nonzero(matrix: csr_matrix) -> csr_matrix:
     """
     Sort in decreasing order the CSR matrix by the total number of non zero elem in each row 
@@ -124,14 +125,13 @@ def stream_cluster(sorted_collection: csr_matrix, radius: float):
             cluster=[d]
             C.append(cluster)
         else:        
-            dist_c=np.min([(1-d.dot(c[0])).round(4) for c in C]) #c[0] is the medoid of the cluster c
+            dist_c=np.min([cosine_distances(c[0], d) for c in C])
             if dist_c<=radius:
                 cluster.append(d)
             else:
                 cluster=[d]
                 C.append(cluster)
-    return C 
-'''
+    return C
 
 
 def random_search_silhouette(estimator: ClusterMixin, X: pd.DataFrame | np.ndarray, param_space: dict, n_iter: int, n_jobs: int = -1):
