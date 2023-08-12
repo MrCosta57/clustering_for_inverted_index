@@ -1,12 +1,14 @@
 import glob, re, random
 import pandas as pd
 import numpy as np
+from sklearn.decomposition import TruncatedSVD
+from sklearn.neighbors import NearestNeighbors
 from tqdm import tqdm
 from Indexer import Indexer
 from ortools.constraint_solver import routing_enums_pb2
 from ortools.constraint_solver import pywrapcp
 from scipy.sparse import csr_matrix
-from sklearn.base import ClusterMixin, clone
+from sklearn.base import clone
 from sklearn.metrics.pairwise import cosine_distances
 from sklearn.feature_extraction.text import TfidfVectorizer
 
@@ -132,62 +134,52 @@ def stream_cluster(sorted_collection: csr_matrix, radius: float):
     return C '''
 
 
-def random_search(estimator: ClusterMixin, sparse_docs: csr_matrix, std_inverted_index: dict, param_space: dict, n_iter: int, n_jobs: int = -1):
+def random_search(estimator, sparse_docs: csr_matrix, std_inverted_index: dict, param_space: dict, n_iter: int, n_jobs: int = -1):
     """ Random parameters search for the clustering estimator based on the silhouette score.
         It returns the best estimator NOT fitted on the data and the docid remapping dictionary"""
     # Perform random parameter search
     best_params = None
     best_estimator = None
-    std_index_size=Indexer.get_total_VB_enc_size(std_inverted_index)
-    best_score=std_index_size
     best_remapping=None
-    print(f"Standard inverted index dimension: {best_score} Bytes")
+    is_mixture="Mixture" in estimator.__class__.__name__
+
+    std_index_size=Indexer.get_total_VB_enc_size(std_inverted_index)
+    print(f"Standard inverted index dimension: {std_index_size} Bytes")
+    best_score=std_index_size
+    
+    if is_mixture:
+        print("Starting LSA transformation...", end=" ")
+        trunc_svd=TruncatedSVD(n_components=100, random_state=42) #For LSA, a value of 100 is recommended.
+        sparse_docs_approx=trunc_svd.fit_transform(sparse_docs)
+        sparse_docs=sparse_docs_approx.astype("float32")
+        print("Done")
 
     for _ in tqdm(range(n_iter)):
         # Randomly sample parameters from the search space
         sampled_params = {param: random.choice(values) for param, values in param_space.items()}
-        
-        if "n_jobs" in estimator.get_params().keys():
-            estimator.set_params(**sampled_params, n_jobs=n_jobs)
-        else:
-            estimator.set_params(**sampled_params)
-
-        estimator.fit(sparse_docs)
-        
+        estimator.set_params(**sampled_params)
         repr_elems=None
-        is_dbscan="DBSCAN" in estimator.__class__.__name__
-        if is_dbscan:
-            core_labels=estimator.labels_[estimator.core_sample_indices_]
-            core_index_list=[]
-            for label in np.unique(core_labels):
-                indices=np.nonzero(core_labels==label)[0]
-                label_indices=estimator.core_sample_indices_[indices] #core sample with current label
-                index=np.random.choice(label_indices) #randomly select one core sample
-                core_index_list.append(index)
-            repr_elems=sparse_docs[core_index_list] #list of core points (one that represents one cluster)
-            if repr_elems.shape[0]==0:
-                print("No core points found!")
-                continue
+        labels=None
+
+        if is_mixture:
+            labels=estimator.fit_predict(sparse_docs)
+            repr_elems=estimator.means_
         else:
+            estimator.fit(sparse_docs)
+            labels=estimator.labels_
             repr_elems=estimator.cluster_centers_ #kmeans.cluster_centers_[0] = centroid of cluster 0
 
         elem_distances=cosine_distances(repr_elems) 
         tsp_solution_order=TSP_solver(elem_distances)
-        if is_dbscan: tsp_solution_order=tsp_solution_order+[-1]
 
         starting_val=0
         docid_remapping={}
         for label in tsp_solution_order:
-            indices=np.nonzero(estimator.labels_==label)[0] #-1 is the noise cluster
+            indices=np.nonzero(labels==label)[0]
             dim=indices.shape[0]
-            if dim!=0: #some clusters might be empty 
-                tmp_vals=None
-                if label!=-1:
-                    distances=cosine_distances(sparse_docs[indices], repr_elems[label].reshape(1,-1)).reshape(-1)
-                    tmp_vals=dict(zip(indices[np.argsort(distances)], range(starting_val, starting_val+dim)))
-                else:
-                    permutation=np.random.permutation(range(starting_val, starting_val+dim))
-                    tmp_vals=dict(zip(indices, permutation))
+            if dim!=0: #some clusters might be empty                 
+                distances=cosine_distances(sparse_docs[indices], repr_elems[label].reshape(1,-1)).reshape(-1)
+                tmp_vals=dict(zip(indices[np.argsort(distances)], range(starting_val, starting_val+dim)))
                 docid_remapping.update(tmp_vals)
                 starting_val+=dim
             else:
@@ -214,5 +206,6 @@ def random_search(estimator: ClusterMixin, sparse_docs: csr_matrix, std_inverted
     else:
         print("Best parameters:", best_params)
         print("Best index dimension: ", best_score, "Bytes")
+
 
     return best_estimator, best_remapping
