@@ -1,4 +1,4 @@
-import glob, re, random
+import random, time
 import pandas as pd
 import numpy as np
 from sklearn.decomposition import TruncatedSVD
@@ -11,27 +11,6 @@ from scipy.sparse import csr_matrix
 from sklearn.base import clone
 from sklearn.metrics.pairwise import cosine_distances
 from sklearn.feature_extraction.text import TfidfVectorizer
-
-
-def parse_data_files(file_path: str ="dataset/", format: str =".dat"):
-    """
-    Parse doc_id and contents of different documents in files according to this format:\n
-    .I <docid>\n
-    .W\n
-    <textline>+\n
-    <blankline>\n
-    Files in the directory are read by name in lexicographic order
-    """
-    file_list=np.sort(glob.glob(file_path+"*"+format))
-    res=pd.DataFrame([], columns=['doc_id', 'terms'])
-    for f in file_list:
-        with open(f, 'r') as file:
-            content=file.read()
-            regex=re.findall(r'\.I ([0-9]*)\n\.W\n(.*)', content)
-            res=pd.concat([res, pd.DataFrame(regex, columns=['doc_id', 'terms'])], ignore_index=True, axis=0)
-    res["doc_id"]=res["doc_id"].astype(int)
-    res["terms"]=res["terms"].astype(str)
-    return res
 
 
 def get_tfidf_repr(df: pd.DataFrame):
@@ -104,39 +83,11 @@ def TSP_solver(pairwise_distances: pd.DataFrame | np.ndarray):
     return routes[0][:-1]
 
 
-''' def sort_csr_by_nonzero(matrix: csr_matrix) -> csr_matrix:
-    """
-    Sort in decreasing order the CSR matrix by the total number of non zero elem in each row 
-    """
-    # Count the number of non-zero entries in each row.
-    nonzero_counts = matrix.getnnz(axis=1)
-    # Get the sorted indices based on the counts.
-    sorted_indices = np.argsort(nonzero_counts)[::-1]
-    # Return the sorted matrix.
-    return matrix[sorted_indices]
-
-def stream_cluster(sorted_collection: csr_matrix, radius: float):
-    """Cluster a sorted list of objects based on their distance to each other. 
-    `sorted_collection` must be TD-IDF vectors normalized"""
-    C=[] #set of all clusters
-    cluster=[]
-    for i, d in enumerate(sorted_collection):
-        if i==0:
-            cluster=[d]
-            C.append(cluster)
-        else:        
-            dist_c=np.min([cosine_distances(c[0], d) for c in C])
-            if dist_c<=radius:
-                cluster.append(d)
-            else:
-                cluster=[d]
-                C.append(cluster)
-    return C '''
-
-
-def random_search(estimator, sparse_docs: csr_matrix, std_inverted_index: dict, param_space: dict, n_iter: int, n_jobs: int = -1):
+def random_search(estimator, sparse_docs: csr_matrix, std_inverted_index: dict, param_space: dict, n_iter: int, debug: bool=False):
     """ Random parameters search for the clustering estimator based on the silhouette score.
-        It returns the best estimator NOT fitted on the data and the docid remapping dictionary"""
+        It returns the best estimator NOT fitted on the data and the docid remapping dictionary.
+        If `debug=True` returns a log dictionary of the times and the values
+    """
     # Perform random parameter search
     best_params = None
     best_estimator = None
@@ -147,20 +98,27 @@ def random_search(estimator, sparse_docs: csr_matrix, std_inverted_index: dict, 
     print(f"Standard inverted index dimension: {std_index_size} Bytes")
     best_score=std_index_size
     
+    start_time=time.process_time()
     if is_mixture:
         print("Starting LSA transformation...", end=" ")
         trunc_svd=TruncatedSVD(n_components=100, random_state=42) #For LSA, a value of 100 is recommended.
         sparse_docs_approx=trunc_svd.fit_transform(sparse_docs)
         sparse_docs=sparse_docs_approx.astype("float32")
         print("Done")
+    end_time=time.process_time()
+    lsa_delta_time=None
+    if is_mixture: lsa_delta_time=end_time-start_time
 
+    log_dict=dict(params=[], compressed_vals=[], tot_times=[], tsp_times=[], original_val=std_index_size, lsa_time=lsa_delta_time)
     for _ in tqdm(range(n_iter)):
         # Randomly sample parameters from the search space
         sampled_params = {param: random.choice(values) for param, values in param_space.items()}
+        if debug: log_dict["params"].append(sampled_params)
         estimator.set_params(**sampled_params)
         repr_elems=None
         labels=None
 
+        start_time=time.process_time()
         if is_mixture:
             labels=estimator.fit_predict(sparse_docs)
             repr_elems=estimator.means_
@@ -169,8 +127,12 @@ def random_search(estimator, sparse_docs: csr_matrix, std_inverted_index: dict, 
             labels=estimator.labels_
             repr_elems=estimator.cluster_centers_ #kmeans.cluster_centers_[0] = centroid of cluster 0
 
-        elem_distances=cosine_distances(repr_elems) 
+        elem_distances=cosine_distances(repr_elems)
+
+        tsp_start_time=time.process_time()
         tsp_solution_order=TSP_solver(elem_distances)
+        tsp_end_time=time.process_time()
+        tsp_delta_time=tsp_end_time-tsp_start_time
 
         starting_val=0
         docid_remapping={}
@@ -184,13 +146,16 @@ def random_search(estimator, sparse_docs: csr_matrix, std_inverted_index: dict, 
                 starting_val+=dim
             else:
                 print(f"Cluster {label} is empty")
+        end_time=time.process_time()
+        delta_times=end_time-start_time
 
         new_inverted_index=Indexer.remap_index(std_inverted_index, docid_remapping)
         new_index_size=Indexer.get_total_VB_enc_size(new_inverted_index)
+        if debug: 
+            log_dict["compressed_vals"].append(new_index_size)
+            log_dict["tot_times"].append(round(delta_times+(lsa_delta_time if is_mixture else 0), 4))
+            log_dict["tsp_times"].append(round(tsp_delta_time, 4))
 
-        """ with open(input_path+"k_means_remapping.pkl", "wb") as file:
-            pickle.dump(k_means_docid_remapping, file) """
-        
         # Check if this combination is the best so far
         if new_index_size < best_score:
             best_estimator = clone(estimator)
@@ -198,14 +163,16 @@ def random_search(estimator, sparse_docs: csr_matrix, std_inverted_index: dict, 
             best_score = new_index_size
             best_remapping=docid_remapping
 
-            print(f"Improved inverted index dimension: {new_index_size} Bytes ~", end="")
-            print(round(((std_index_size-new_index_size)/(std_index_size+new_index_size))*100, 3), "% reduction over the original")
+            print(f"Improved avg postings dimension: {new_index_size} Bytes ~", end="")
+            print(round(((std_index_size-new_index_size)/(std_index_size+new_index_size))*100, 4), "% reduction over the original")
 
     if best_estimator is None:
         print("No improvements!")
     else:
         print("Best parameters:", best_params)
-        print("Best index dimension: ", best_score, "Bytes")
+        print("Best avg postings dimension: ", best_score, "Bytes")
 
-
-    return best_estimator, best_remapping
+    if debug:
+        return best_estimator, best_remapping, log_dict
+    else:
+        return best_estimator, best_remapping

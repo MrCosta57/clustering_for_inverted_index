@@ -1,11 +1,10 @@
-import glob
+import glob, re
 import matplotlib.pyplot as plt 
 import numpy as np
-from tqdm import tqdm
+import pandas as pd
 from scipy.sparse import csr_matrix
 from collections import OrderedDict
 
-EXIT_NUMBER_DOCS=50000
 class Indexer:
     def __init__(self, file_path="dataset/", format=".dat"):
         """Initialize the object with the list of all files in a directory sorted by name"""
@@ -22,7 +21,6 @@ class Indexer:
         tot_docs = 0      # total number of docs
         tot_tokens = 0    # total number of tokens
         tot_postings = 0  # total number of postings
-        EXIT_TMP=False
 
         for f in self.file_list:
             count_doc = 0       # number of docs per file .dat     
@@ -58,12 +56,6 @@ class Indexer:
                                             # value for key=el:
                                             #     [coll_frequency, [docid1, docid2, ....]]
                                     count_postings += 1
-                    
-                    if docid==EXIT_NUMBER_DOCS:
-                        EXIT_TMP=True
-                        break
-                if EXIT_TMP:
-                    break
             #print(f, " - docs: ", count_doc, "   tokes: ", count_tokens)
             tot_docs += count_doc
             tot_tokens += count_tokens
@@ -73,12 +65,34 @@ class Indexer:
         print("Total no. of tokens:", count_tokens)
         print("Total no. of documents:", tot_docs)
         print("Total no. of postings:", tot_postings)
-        
         return dict
 
+    def parse_data_files(self):
+        """
+        Parse doc_id and contents of different documents in files according to this format:\n
+        .I <docid>\n
+        .W\n
+        <textline>+\n
+        <blankline>\n
+        Files in the directory are read by name in lexicographic order
+        """
+        file_list=np.sort(glob.glob(self.file_path+"*"+self.format))
+        res=pd.DataFrame([], columns=['doc_id', 'terms'])
+        for f in file_list:
+            with open(f, 'r') as file:
+                content=file.read()
+                regex=re.findall(r'\.I ([0-9]*)\n\.W\n(.*)', content)
+                res=pd.concat([res, pd.DataFrame(regex, columns=['doc_id', 'terms'])], ignore_index=True, axis=0)
+        res["doc_id"]=res["doc_id"].astype(int)
+        res["terms"]=res["terms"].astype(str)
+        return res
 
     @staticmethod
     def get_dict_from_csr_matrix(matrix: csr_matrix):
+        """
+        Return a dictionary (inverted index) where the keys are the term_id and the values are the associated doc_id in ascending order with length of the postion list.
+        It assumes matrix's rows as the doc_id and the matrix's columns as term_id
+        """
         col_matr=matrix.tocsc()
         tmp_new_dict={key: col_matr.getcol(key).nonzero()[0] for key in range(matrix.shape[1])}
         new_dict={key: [len(value), sorted(value)] for key, value in tmp_new_dict.items()}
@@ -142,7 +156,7 @@ class Indexer:
     @staticmethod
     def get_total_VB_enc_size(index: dict):
         """
-        Return the total size in Bytes occupied by the posting lists of an inverted index if Variable Byte encoding is used
+        Return the average posting list size in Bytes of an inverted index if Variable Byte encoding is used
         """
         #Formula for each G-gap: ceil( ( floor(logG)+1 )/7 )*8
         sizes_list=[np.sum(np.ceil((np.floor(np.log2(np.diff(v[1])))+1)/7)*8) for v in index.values()]
