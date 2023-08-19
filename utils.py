@@ -1,8 +1,9 @@
 import random, time
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
 from sklearn.decomposition import TruncatedSVD
-from sklearn.neighbors import NearestNeighbors
 from tqdm import tqdm
 from Indexer import Indexer
 from ortools.constraint_solver import routing_enums_pb2
@@ -84,7 +85,7 @@ def TSP_solver(pairwise_distances: pd.DataFrame | np.ndarray):
 
 
 def random_search(estimator, sparse_docs: csr_matrix, std_inverted_index: dict, param_space: dict, n_iter: int, debug: bool=False):
-    """ Random parameters search for the clustering estimator based on the silhouette score.
+    """ Random parameters search for the clustering estimator based on final compression ratio.
         It returns the best estimator NOT fitted on the data and the docid remapping dictionary.
         If `debug=True` returns a log dictionary of the times and the values
     """
@@ -110,11 +111,22 @@ def random_search(estimator, sparse_docs: csr_matrix, std_inverted_index: dict, 
     if is_mixture: lsa_delta_time=end_time-start_time
 
     log_dict=dict(params=[], compressed_vals=[], tot_times=[], tsp_times=[], original_val=std_index_size, lsa_time=lsa_delta_time)
-    for _ in tqdm(range(n_iter)):
+
+    total_combinations = np.prod([len(param_range) for param_range in param_space.values()])
+    random_indices = np.random.choice(total_combinations, size=n_iter, replace=False)
+    selected_combinations = []
+    for index in random_indices:
+        combination = {}
+        for param, param_range in param_space.items():
+            idx = index % len(param_range)
+            combination[param] = param_range[idx]
+            index //= len(param_range)
+        selected_combinations.append(combination)
+
+    for combination in tqdm(selected_combinations):
         # Randomly sample parameters from the search space
-        sampled_params = {param: random.choice(values) for param, values in param_space.items()}
-        if debug: log_dict["params"].append(sampled_params)
-        estimator.set_params(**sampled_params)
+        if debug: log_dict["params"].append(combination)
+        estimator.set_params(**combination)
         repr_elems=None
         labels=None
 
@@ -159,7 +171,7 @@ def random_search(estimator, sparse_docs: csr_matrix, std_inverted_index: dict, 
         # Check if this combination is the best so far
         if new_index_size < best_score:
             best_estimator = clone(estimator)
-            best_params = sampled_params
+            best_params = combination
             best_score = new_index_size
             best_remapping=docid_remapping
 
@@ -176,3 +188,52 @@ def random_search(estimator, sparse_docs: csr_matrix, std_inverted_index: dict, 
         return best_estimator, best_remapping, log_dict
     else:
         return best_estimator, best_remapping
+
+
+def plot_results(log_dict: dict, method_name:str, errorbar=None, get_k_only:int=10):
+    """
+    Plot results of Clustering for inverted index compression analysis. 
+    `get_k_only` get the top k vaue and the worst k value only, for the plots
+    """
+    params_name="n_components" if method_name=="Gaussian Mixture" else "n_clusters"
+    params=np.array([elem[params_name] for elem in log_dict["params"]])
+    tot_times=np.array(log_dict["tot_times"])
+    tsp_times=np.array(log_dict["tsp_times"])
+    std_index_size=log_dict["original_val"]
+    compressed_vals=np.array(log_dict["compressed_vals"])
+    
+    params_index=np.argsort(params) #ordered params indices
+    best_compr_index=np.argsort(compressed_vals)[-get_k_only:] #best get_k_only compression vals indices
+    worst_compr_index=np.argsort(compressed_vals)[:get_k_only] #worst get_k_only compression vals indices
+
+    best_times_index=np.argsort(tot_times)[:get_k_only] #best get_k_only time vals indices
+    worst_times_index=np.argsort(tot_times)[-get_k_only:] #worst get_k_only time vals indices
+    colors=sns.color_palette("pastel", n_colors=len(params))
+
+    #Get compression percentage w.r.t original value
+    percentage_compr_best=np.round((((std_index_size-compressed_vals[best_compr_index])/(std_index_size+compressed_vals[best_compr_index]))*100), 4)
+    percentage_compr_worst=np.round((((std_index_size-compressed_vals[worst_compr_index])/(std_index_size+compressed_vals[worst_compr_index]))*100), 4)
+
+    sns.barplot(x=np.concatenate((params[worst_compr_index], params[best_compr_index])), 
+                y=np.concatenate((percentage_compr_worst, percentage_compr_best)), 
+                palette=colors, errorbar=errorbar)
+    plt.title(method_name+' compression ratio')
+    plt.xlabel('Number of clusters')
+    plt.ylabel('Compression w.r.t original size (%)')
+    plt.show()
+
+    sns.lineplot(x=params[params_index], y=tsp_times[params_index], marker="<")
+    plt.title(method_name+' TSP time spent')
+    plt.xlabel('Number of clusters')
+    plt.ylabel('Time spent (sec)')
+    plt.show()
+
+    sns.barplot(x=np.concatenate((params[best_times_index], params[worst_times_index])), 
+                y=np.concatenate((tot_times[best_times_index], tot_times[worst_times_index])), 
+                palette=colors, errorbar=errorbar)
+    plt.title(method_name+' total time spent')
+    plt.xlabel('Number of clusters')
+    plt.ylabel('Time spent (sec)')
+    if method_name=="Gaussian Mixture":
+        plt.axhline(log_dict["lsa_time"]) #line that indicate the time spent by the LSA (in sec)
+    plt.show()
