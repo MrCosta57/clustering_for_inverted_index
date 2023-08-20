@@ -96,7 +96,7 @@ def random_search(estimator, sparse_docs: csr_matrix, std_inverted_index: dict, 
     is_mixture="Mixture" in estimator.__class__.__name__
 
     std_index_size=Indexer.get_total_VB_enc_size(std_inverted_index)
-    print(f"Standard inverted index dimension: {std_index_size} Bytes")
+    print(f"Standard inverted index avg postings size: {std_index_size} Bytes")
     best_score=std_index_size
     
     start_time=time.process_time()
@@ -175,14 +175,14 @@ def random_search(estimator, sparse_docs: csr_matrix, std_inverted_index: dict, 
             best_score = new_index_size
             best_remapping=docid_remapping
 
-            print(f"Improved avg postings dimension: {new_index_size} Bytes ~", end="")
+            print(f"Improved avg postings size: {new_index_size} Bytes ~", end="")
             print(round(((std_index_size-new_index_size)/(std_index_size+new_index_size))*100, 4), "% reduction over the original")
 
     if best_estimator is None:
         print("No improvements!")
     else:
         print("Best parameters:", best_params)
-        print("Best avg postings dimension: ", best_score, "Bytes")
+        print("Best avg postings size: ", best_score, "Bytes")
 
     if debug:
         return best_estimator, best_remapping, log_dict
