@@ -156,7 +156,7 @@ class Indexer:
     @staticmethod
     def get_total_VB_enc_size(index: dict):
         """
-        Return the average posting list size in Bytes of an inverted index if Variable Byte encoding is used
+        Return the average posting list size in bit of an inverted index if Variable Byte encoding is used
         """
         #Formula for each G-gap: ceil( ( floor(logG)+1 )/7 )*8
         sizes_list=[np.sum(np.ceil((np.floor(np.log2(np.diff(v[1])))+1)/7)*8) for v in index.values()]

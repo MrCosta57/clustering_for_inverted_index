@@ -96,7 +96,7 @@ def random_search(estimator, sparse_docs: csr_matrix, std_inverted_index: dict, 
     is_mixture="Mixture" in estimator.__class__.__name__
 
     std_index_size=Indexer.get_total_VB_enc_size(std_inverted_index)
-    print(f"Standard inverted index avg postings size: {std_index_size} Bytes")
+    print(f"Standard inverted index avg posting list size: {std_index_size} bit")
     best_score=std_index_size
     
     start_time=time.process_time()
@@ -175,14 +175,14 @@ def random_search(estimator, sparse_docs: csr_matrix, std_inverted_index: dict, 
             best_score = new_index_size
             best_remapping=docid_remapping
 
-            print(f"Improved avg postings size: {new_index_size} Bytes ~", end="")
+            print(f"Improved avg posting list size: {new_index_size} bit ~", end="")
             print(round(((std_index_size-new_index_size)/(std_index_size+new_index_size))*100, 4), "% reduction over the original")
 
     if best_estimator is None:
         print("No improvements!")
     else:
         print("Best parameters:", best_params)
-        print("Best avg postings size: ", best_score, "Bytes")
+        print("Best avg posting list size: ", best_score, "bit")
 
     if debug:
         return best_estimator, best_remapping, log_dict
@@ -190,7 +190,7 @@ def random_search(estimator, sparse_docs: csr_matrix, std_inverted_index: dict, 
         return best_estimator, best_remapping
 
 
-def plot_results(log_dict: dict, method_name:str, errorbar=None, get_k_only:int=10):
+def plot_results(log_dict: dict, method_name:str): #errorbar=None, get_k_only:int=10
     """
     Plot results of Clustering for inverted index compression analysis. 
     `get_k_only` get the top k vaue and the worst k value only, for the plots
@@ -201,39 +201,47 @@ def plot_results(log_dict: dict, method_name:str, errorbar=None, get_k_only:int=
     tsp_times=np.array(log_dict["tsp_times"])
     std_index_size=log_dict["original_val"]
     compressed_vals=np.array(log_dict["compressed_vals"])
-    
     params_index=np.argsort(params) #ordered params indices
-    best_compr_index=np.argsort(compressed_vals)[-get_k_only:] #best get_k_only compression vals indices
-    worst_compr_index=np.argsort(compressed_vals)[:get_k_only] #worst get_k_only compression vals indices
-
-    best_times_index=np.argsort(tot_times)[:get_k_only] #best get_k_only time vals indices
-    worst_times_index=np.argsort(tot_times)[-get_k_only:] #worst get_k_only time vals indices
-    colors=sns.color_palette("pastel", n_colors=len(params))
-
     #Get compression percentage w.r.t original value
-    percentage_compr_best=np.round((((std_index_size-compressed_vals[best_compr_index])/(std_index_size+compressed_vals[best_compr_index]))*100), 4)
-    percentage_compr_worst=np.round((((std_index_size-compressed_vals[worst_compr_index])/(std_index_size+compressed_vals[worst_compr_index]))*100), 4)
+    percentage_compr=np.round((((std_index_size-compressed_vals)/(std_index_size+compressed_vals))*100), 4)
+    colors=sns.color_palette("deep", n_colors=3)
 
-    sns.barplot(x=np.concatenate((params[worst_compr_index], params[best_compr_index])), 
-                y=np.concatenate((percentage_compr_worst, percentage_compr_best)), 
-                palette=colors, errorbar=errorbar)
+    """ best_times_index=np.argsort(tot_times)[:get_k_only] #best get_k_only time vals indices
+    worst_times_index=np.argsort(tot_times)[-get_k_only:] #worst get_k_only time vals indices
+    best_compr_index=np.argsort(percentage_compr)[-get_k_only:] #best get_k_only compression vals indices
+    worst_compr_index=np.argsort(percentage_compr)[:get_k_only] #worst get_k_only compression vals indices """
+    
+    plt.figure(figsize=(8,6))
+    """ sns.barplot(x=np.concatenate((params[worst_compr_index], params[best_compr_index])), 
+                y=np.concatenate((percentage_compr[worst_compr_index], percentage_compr[best_compr_index])), 
+                palette=colors, errorbar=errorbar) """
+    sns.lineplot(x=params[params_index], y=percentage_compr[params_index], marker="<", color=colors[0])
+
     plt.title(method_name+' compression ratio')
     plt.xlabel('Number of clusters')
     plt.ylabel('Compression w.r.t original size (%)')
     plt.show()
+    print("Worst - params: ", params[np.argmin(percentage_compr)], " value: ", percentage_compr[np.argmin(percentage_compr)])
+    print("Best - params: ", params[np.argmax(percentage_compr)], " value: ", percentage_compr[np.argmax(percentage_compr)])
 
-    sns.lineplot(x=params[params_index], y=tsp_times[params_index], marker="<")
+    plt.figure(figsize=(8,6))
+    sns.lineplot(x=params[params_index], y=tsp_times[params_index], marker="<", color=colors[1])
     plt.title(method_name+' TSP time spent')
     plt.xlabel('Number of clusters')
     plt.ylabel('Time spent (sec)')
     plt.show()
 
-    sns.barplot(x=np.concatenate((params[best_times_index], params[worst_times_index])), 
+    plt.figure(figsize=(8,6))
+    """ sns.barplot(x=np.concatenate((params[best_times_index], params[worst_times_index])), 
                 y=np.concatenate((tot_times[best_times_index], tot_times[worst_times_index])), 
-                palette=colors, errorbar=errorbar)
+                palette=colors, errorbar=errorbar) """
+    sns.lineplot(x=params[params_index], y=tot_times[params_index], marker="<", color=colors[2])
+
     plt.title(method_name+' total time spent')
     plt.xlabel('Number of clusters')
     plt.ylabel('Time spent (sec)')
-    if method_name=="Gaussian Mixture":
-        plt.axhline(log_dict["lsa_time"]) #line that indicate the time spent by the LSA (in sec)
+    """ if method_name=="Gaussian Mixture":
+        plt.axhline(log_dict["lsa_time"]) #line that indicate the time spent by the LSA (in sec) """
     plt.show()
+    print("Worst - params: ", params[np.argmax(tot_times)], " value: ", tot_times[np.argmax(tot_times)])
+    print("Best - params: ", params[np.argmin(tot_times)], " value: ", tot_times[np.argmin(tot_times)])
