@@ -203,7 +203,7 @@ def plot_results(log_dict: dict, method_name:str): #errorbar=None, get_k_only:in
     compressed_vals=np.array(log_dict["compressed_vals"])
     params_index=np.argsort(params) #ordered params indices
     #Get compression percentage w.r.t original value
-    percentage_compr=np.round((((std_index_size-compressed_vals)/(std_index_size+compressed_vals))*100), 4)
+    percentage_compr=np.round((((std_index_size-compressed_vals)/std_index_size)*100), 4)
     colors=sns.color_palette("deep", n_colors=3)
 
     """ best_times_index=np.argsort(tot_times)[:get_k_only] #best get_k_only time vals indices
@@ -221,8 +221,6 @@ def plot_results(log_dict: dict, method_name:str): #errorbar=None, get_k_only:in
     plt.xlabel('Number of clusters')
     plt.ylabel('Compression w.r.t original size (%)')
     plt.show()
-    print("Worst - params: ", params[np.argmin(percentage_compr)], " value: ", percentage_compr[np.argmin(percentage_compr)])
-    print("Best - params: ", params[np.argmax(percentage_compr)], " value: ", percentage_compr[np.argmax(percentage_compr)])
 
     plt.figure(figsize=(8,6))
     sns.lineplot(x=params[params_index], y=tsp_times[params_index], marker="<", color=colors[1])
@@ -243,5 +241,10 @@ def plot_results(log_dict: dict, method_name:str): #errorbar=None, get_k_only:in
     """ if method_name=="Gaussian Mixture":
         plt.axhline(log_dict["lsa_time"]) #line that indicate the time spent by the LSA (in sec) """
     plt.show()
-    print("Worst - params: ", params[np.argmax(tot_times)], " value: ", tot_times[np.argmax(tot_times)])
-    print("Best - params: ", params[np.argmin(tot_times)], " value: ", tot_times[np.argmin(tot_times)])
+    #print("Worst - params: ", params[np.argmax(tot_times)], " value: ", tot_times[np.argmax(tot_times)])
+    #print("Best - params: ", params[np.argmin(tot_times)], " value: ", tot_times[np.argmin(tot_times)])
+
+    min_idx=np.argmin(percentage_compr)
+    max_idx=np.argmax(percentage_compr)
+    print("Worst compression - params: ", params[min_idx], " value: ", percentage_compr[min_idx],  " TSP time: ", tsp_times[min_idx], " tot time: ", tot_times[min_idx])
+    print("Best compression - params: ", params[max_idx], " value: ", percentage_compr[max_idx], " TSP time: ", tsp_times[max_idx], " tot time: ", tot_times[max_idx])
