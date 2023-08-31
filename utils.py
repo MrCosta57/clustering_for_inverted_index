@@ -1,4 +1,4 @@
-import random, time
+import time
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -26,7 +26,7 @@ def get_tfidf_repr(df: pd.DataFrame):
 
 
 def get_routes(solution, routing, manager):
-    """Get vehicle routes from a solution and store them in an array."""
+    """Get vehicle routes from a solution and store them in an array"""
 
     # Get vehicle routes and store them in a two dimensional array whose
     # i,j entry is the jth location visited by vehicle i along its route.
@@ -84,8 +84,8 @@ def TSP_solver(pairwise_distances: pd.DataFrame | np.ndarray):
     return routes[0][:-1]
 
 
-def random_search(estimator, sparse_docs: csr_matrix, std_inverted_index: dict, param_space: dict, n_iter: int, debug: bool=False):
-    """ Random parameters search for the clustering estimator based on final compression ratio.
+def random_search(estimator, sparse_docs: csr_matrix, std_inverted_index: dict, param_space: dict, n_iter: int, debug: bool=False, random_state:int =42):
+    """ Random parameters search for the clustering estimator based on final compression ratio obtainable using VB encoding.
         It returns the best estimator NOT fitted on the data and the docid remapping dictionary.
         If `debug=True` returns a log dictionary of the times and the values
     """
@@ -102,7 +102,7 @@ def random_search(estimator, sparse_docs: csr_matrix, std_inverted_index: dict, 
     start_time=time.process_time()
     if is_mixture:
         print("Starting LSA transformation...", end=" ")
-        trunc_svd=TruncatedSVD(n_components=100, random_state=42) #For LSA, a value of 100 is recommended.
+        trunc_svd=TruncatedSVD(n_components=100, random_state=random_state) #For LSA, a value of 100 is recommended.
         sparse_docs_approx=trunc_svd.fit_transform(sparse_docs)
         sparse_docs=sparse_docs_approx.astype("float32")
         print("Done")
@@ -151,7 +151,7 @@ def random_search(estimator, sparse_docs: csr_matrix, std_inverted_index: dict, 
         for label in tsp_solution_order:
             indices=np.nonzero(labels==label)[0]
             dim=indices.shape[0]
-            if dim!=0: #some clusters might be empty                 
+            if dim!=0: #some clusters might be empty for some algorithms               
                 distances=cosine_distances(sparse_docs[indices], repr_elems[label].reshape(1,-1)).reshape(-1)
                 tmp_vals=dict(zip(indices[np.argsort(distances)], range(starting_val, starting_val+dim)))
                 docid_remapping.update(tmp_vals)
@@ -176,7 +176,7 @@ def random_search(estimator, sparse_docs: csr_matrix, std_inverted_index: dict, 
             best_remapping=docid_remapping
 
             print(f"Improved avg posting list size: {new_index_size} bit ~", end="")
-            print(round(((std_index_size-new_index_size)/(std_index_size+new_index_size))*100, 4), "% reduction over the original")
+            print(round(((std_index_size-new_index_size)/std_index_size)*100, 4), "% reduction over the original")
 
     if best_estimator is None:
         print("No improvements!")
@@ -202,19 +202,12 @@ def plot_results(log_dict: dict, method_name:str): #errorbar=None, get_k_only:in
     std_index_size=log_dict["original_val"]
     compressed_vals=np.array(log_dict["compressed_vals"])
     params_index=np.argsort(params) #ordered params indices
+    
     #Get compression percentage w.r.t original value
     percentage_compr=np.round((((std_index_size-compressed_vals)/std_index_size)*100), 4)
     colors=sns.color_palette("deep", n_colors=3)
 
-    """ best_times_index=np.argsort(tot_times)[:get_k_only] #best get_k_only time vals indices
-    worst_times_index=np.argsort(tot_times)[-get_k_only:] #worst get_k_only time vals indices
-    best_compr_index=np.argsort(percentage_compr)[-get_k_only:] #best get_k_only compression vals indices
-    worst_compr_index=np.argsort(percentage_compr)[:get_k_only] #worst get_k_only compression vals indices """
-    
     plt.figure(figsize=(8,6))
-    """ sns.barplot(x=np.concatenate((params[worst_compr_index], params[best_compr_index])), 
-                y=np.concatenate((percentage_compr[worst_compr_index], percentage_compr[best_compr_index])), 
-                palette=colors, errorbar=errorbar) """
     sns.lineplot(x=params[params_index], y=percentage_compr[params_index], marker="<", color=colors[0])
 
     plt.title(method_name+' compression ratio')
@@ -230,20 +223,13 @@ def plot_results(log_dict: dict, method_name:str): #errorbar=None, get_k_only:in
     plt.show()
 
     plt.figure(figsize=(8,6))
-    """ sns.barplot(x=np.concatenate((params[best_times_index], params[worst_times_index])), 
-                y=np.concatenate((tot_times[best_times_index], tot_times[worst_times_index])), 
-                palette=colors, errorbar=errorbar) """
     sns.lineplot(x=params[params_index], y=tot_times[params_index], marker="<", color=colors[2])
 
     plt.title(method_name+' total time spent')
     plt.xlabel('Number of clusters')
     plt.ylabel('Time spent (sec)')
-    """ if method_name=="Gaussian Mixture":
-        plt.axhline(log_dict["lsa_time"]) #line that indicate the time spent by the LSA (in sec) """
     plt.show()
-    #print("Worst - params: ", params[np.argmax(tot_times)], " value: ", tot_times[np.argmax(tot_times)])
-    #print("Best - params: ", params[np.argmin(tot_times)], " value: ", tot_times[np.argmin(tot_times)])
-
+    
     min_idx=np.argmin(percentage_compr)
     max_idx=np.argmax(percentage_compr)
     print("Worst compression - params: ", params[min_idx], " value: ", percentage_compr[min_idx],  " TSP time: ", tsp_times[min_idx], " tot time: ", tot_times[min_idx])
